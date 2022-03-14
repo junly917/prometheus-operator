@@ -1,0 +1,30 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: dinghook
+  namespace: monitoring
+  labels:
+    alertmanagerConfig: example
+spec:
+  receivers:
+    - name: Critical
+      webhookConfigs:
+        - url: http://dingtalk-hook:5000
+          sendResolved: true
+    - name: Default
+      webhookConfigs:
+        - url: http://dingtalk-web:5000
+          sendResolved: true
+  route:
+    groupBy: ["namespace"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 12h
+    receiver: Critical
+    routes:
+      - receiver: Critical
+        match:
+          severity: critical
+      - receiver: Default
+        match:
+          severity: default 

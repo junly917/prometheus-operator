@@ -1,0 +1,173 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+  namespace: kube-system
+
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nfs-client-provisioner-runner
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: run-nfs-client-provisioner
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: kube-system
+    #namespace: default
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: leader-locking-nfs-client-provisioner
+    # replace with namespace where provisioner is deployed
+  #namespace: default
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    # replace with namespace where provisioner is deployed
+    #namespace: default
+    namespace: kube-system
+roleRef:
+  kind: Role
+  name: leader-locking-nfs-client-provisioner
+  apiGroup: rbac.authorization.k8s.io
+
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: managed-nfs-storage
+  namespace: kube-system
+  annotations:
+    "storageclass.kubernetes.io/is-default-class": "true"   
+provisioner: nfs-storage 
+reclaimPolicy: Retain     
+parameters:
+  archiveOnDelete: "false"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-client-provisioner
+  labels:
+    app: nfs-client-provisioner
+  # replace with namespace where provisioner is deployed
+  namespace:  kube-system  #与RBAC文件中的namespace保持一致
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nfs-client-provisioner
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-client-provisioner
+  template:
+    metadata:
+      labels:
+        app: nfs-client-provisioner
+    spec:
+      serviceAccountName: nfs-client-provisioner
+      containers:
+        - name: nfs-client-provisioner
+          #image: quay.io/external_storage/nfs-client-provisioner:latest
+          image: cr.speakin.mobi/k8s/storage-nfs-client-provisioner
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: nfs-storage  #provisioner名称,请确保该名称与 nfs-StorageClass.yaml文件中的provisioner名称保持一致
+            - name: NFS_SERVER
+              value: 192.168.23.7   #NFS Server IP地址
+            - name: NFS_PATH  
+              value: /data/nfs/storageclass    #NFS挂载卷
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 192.168.23.7  #NFS Server IP地址
+            #path: /data/nfs 	#NFS 挂载卷
+            path: /data/nfs/storageclass    #NFS挂载卷
+
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage
+  namespace: monitoring
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "managed-nfs-storage"   #与nfs-StorageClass.yaml metadata.name保持一致
+spec:
+ accessModes:
+ - ReadWriteOnce
+ resources:
+   requests:
+     storage: 6Gi
+
+
+
+---
+#kind: Pod
+#apiVersion: v1
+#metadata:
+#  name: test-pod
+#spec:
+#  containers:
+#  - name: test-pod
+#    image: busybox:1.24
+#    command:
+#      - "/bin/sh"
+#    args:
+#      - "-c"
+#      - "touch /mnt/SUCCESS && exit 0 || exit 1"   #创建一个SUCCESS文件后退出
+#    volumeMounts:
+#      - name: nfs-pvc
+#        mountPath: "/mnt"
+#  restartPolicy: "Never"
+#  volumes:
+#    - name: nfs-pvc
+#      persistentVolumeClaim:
+#        claimName: mypvc #与PVC名称保持一致

@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:   # 注意 label 标签一定至少要有 prometheus=k8s 和 role=alert-rules，
+    prometheus: k8s
+    role: alert-rules
+  name: etcd-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: etcd
+    rules:
+    - alert: EtcdClusterUnavailable
+      annotations:
+        summary: etcd cluster small
+        description: If one more etcd peer goes down the cluster will be unavailable
+      expr: |
+        count(up{job="etcd"} == 0) > (count(up{job="etcd"}) / 2 - 1)
+      for: 3m
+      labels:
+        severity: critical
